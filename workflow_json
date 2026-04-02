@@ -1,0 +1,221 @@
+{
+  "name": "家电RSS资讯收集 v3",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "triggerAtHour": 8, "triggerAtMinute": 0 },
+            { "triggerAtHour": 20, "triggerAtMinute": 0 }
+          ]
+        }
+      },
+      "id": "node-schedule",
+      "name": "定时触发",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [100, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT name, url, enabled FROM rss_sources WHERE enabled = true ORDER BY id"
+      },
+      "id": "node-read-sources",
+      "name": "读取RSS源配置",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [340, 400],
+      "credentials": { "postgres": "your-postgres-credentials" },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-loop-sources",
+      "name": "遍历RSS源",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [580, 400]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {
+          "timeout": 30000
+        },
+        "response": {
+          "responseFormat": "file"
+        }
+      },
+      "id": "node-rss-fetch",
+      "name": "获取RSS原始内容",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [820, 400],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const binaryProp = $input.first().binary;\nlet rawBuffer;\n\nif (binaryProp && binaryProp.data) {\n  rawBuffer = Buffer.from(binaryProp.data);\n} else if (binaryProp && Object.keys(binaryProp).length > 0) {\n  const firstKey = Object.keys(binaryProp)[0];\n  rawBuffer = Buffer.from(binaryProp[firstKey].data);\n} else {\n  const text = $input.first().json.output || $input.first().json.data || '';\n  const items = parseRSS(text, 'utf-8');\n  return items.map(item => ({ json: { ...item, _encoding: 'utf-8 (fallback)' } }));\n}\n\nfunction parseRSS(content) {\n  const items = [];\n  const itemRegex = /<(?:item|entry)[^>]*>([\\s\\S]*?)<\\/(?:item|entry)>/gi;\n  let match;\n  while ((match = itemRegex.exec(content)) !== null && items.length < 50) {\n    const itemXml = match[1];\n    const getTag = (tag) => {\n      const re = new RegExp('<' + tag + '[^>]*><!\\\\[CDATA\\\\[([\\\\s\\\\S]*?)\\\\]\\\\]><\\\\/' + tag + '>|<' + tag + '[^>]*>([\\\\s\\\\S]*?)<\\\\/' + tag + '>', 'gi');\n      const m = itemXml.match(re);\n      return m ? (m[1] || m[2] || '').trim() : '';\n    };\n    const title = getTag('title');\n    const link = getTag('link');\n    const description = getTag('description') || getTag('summary') || getTag('content');\n    const pubDate = getTag('pubDate') || getTag('published') || getTag('updated') || '';\n    const cleanDesc = (description || '').replace(/<[^>]+>/g, '').substring(0, 800);\n    if (title || link) {\n      items.push({\n        title: title || '',\n        link,\n        guid: getTag('guid') || link,\n        description: cleanDesc,\n        pubDate: pubDate.substring(0, 10),\n        published_raw: pubDate\n      });\n    }\n  }\n  return items;\n}\n\n// Detect encoding from XML declaration\nconst sample = rawBuffer.toString('ascii', 0, 200);\nlet encoding = 'utf-8';\nconst encMatch = sample.match(/encoding=[\"']([^\"']+)[\"']/i);\nif (encMatch) {\n  const e = encMatch[1].toLowerCase();\n  if (e === 'gbk' || e === 'gb2312' || e === 'gb18030') encoding = 'gbk';\n}\n\nconst content = rawBuffer.toString(encoding);\nconst items = parseRSS(content);\nreturn items.map(item => ({ json: { ...item, _encoding: encoding } }));"
+      },
+      "id": "node-parse-rss",
+      "name": "解析RSS(转码)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "node-loop-items",
+      "name": "遍历资讯",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1300, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM rss_items WHERE guid = '{{ $json.guid }}' LIMIT 1"
+      },
+      "id": "node-check-dup",
+      "name": "检查重复",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1540, 250],
+      "credentials": { "postgres": "your-postgres-credentials" }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst sourceName = $('遍历RSS源').first().json.name;\nconst rawDesc = item.description || '';\nconst cleanDesc = rawDesc.replace(/<[^>]+>/g, '').substring(0, 800);\nreturn {\n  json: {\n    title: (item.title || '').replace(/<!\\[CDATA\\[(.*?)\\]\\]>/g, '$1'),\n    link: item.link || '',\n    guid: item.guid || item.link || '',\n    pubDate: item.pubDate || '',\n    description: cleanDesc,\n    source: sourceName\n  }\n};"
+      },
+      "id": "node-normalize",
+      "name": "标准化字段",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 550]
+    },
+    {
+      "parameters": {
+        "url": "={{ $('遍历资讯').first().json.link }}"
+      },
+      "id": "node-fetch-original",
+      "name": "抓取原文",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1780, 550],
+      "continueOnFail": true,
+      "timeout": 15000
+    },
+    {
+      "parameters": {
+        "jsCode": "const httpData = $input.first().json;\nconst rssData = $('标准化字段').first().json;\nlet content = '';\nif (httpData && httpData.output && httpData.output !== 'too many redirects') {\n  const text = httpData.output || '';\n  const paragraphs = text.match(/<p[^>]*>(.*?)<\\/p>/gi) || [];\n  content = paragraphs.map(p => p.replace(/<[^>]+>/g, '')).join(' ').substring(0, 2000);\n}\nif (!content) content = rssData.description;\nreturn { json: { ...rssData, content: content || rssData.description } };"
+      },
+      "id": "node-extract-content",
+      "name": "提取正文",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2020, 550]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst title = item.title.toLowerCase();\nconst desc = item.description.toLowerCase();\nconst keywords = [\n  '家电','冰箱','洗衣机','烘干机','洗碗机','扫地机','烤箱',\n  '智能家居','全屋智能','具身智能','人车家','空调','油烟机',\n  '燃气灶','热水器','冷柜','电视','投影','穿戴',\n  '华为','小米','海尔','格力','美的','石头','追觅','科沃斯',\n  '云鲸','方太','老板','华帝','AOO','三星','LG','索尼',\n  ' appliance','smart home','robot vacuum'\n];\nlet relevanceScore = 0;\nfor (const kw of keywords) {\n  if (title.includes(kw) || desc.includes(kw)) relevanceScore++;\n}\nconst isRelevant = relevanceScore >= 1;\nreturn { json: { ...item, isRelevant, skipReason: isRelevant ? '' : 'non-relevant', relevanceScore } };"
+      },
+      "id": "node-prefilter",
+      "name": "预过滤",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2260, 550]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "operation": "complete",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "你是一个家电行业资讯分析师。请严格按以下JSON格式返回，不要添加任何其他文字。\n\n{\n  \"品类\": \"冰箱|洗衣机|洗碗机|扫地机器人|烤箱|烘干机|智能家居|具身智能|全屋智能|人车家|其他\",\n  \"摘要\": \"80字以内内容摘要\",\n  \"是否热点\": \"是|否\",\n  \"关键词\": \"最多4个关键词，逗号分隔\"\n}\n\n判断标准：\n- 品类：与家电/智能家居/人车家生态相关则打具体品类，否则\"其他\"\n- 是否热点：知名品牌新品发布、重大技术突破、行业事件为\"是\"\n- 只返回JSON，不要任何解释"
+            },
+            {
+              "role": "user",
+              "content": "标题：{{ $json.title }}\n来源：{{ $json.source }}\n时间：{{ $json.pubDate }}\n正文：{{ $json.content }}"
+            }
+          ]
+        },
+        "options": { "maxTokens": 400, "temperature": 0.2 }
+      },
+      "id": "node-ai-classify",
+      "name": "AI分类打标",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.4,
+      "position": [2500, 550],
+      "credentials": { "openAiApi": "your-openai-credentials" }
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $('预过滤').first().json;\nconst aiOutput = $input.first().json;\nlet parsed = {};\ntry {\n  const text = aiOutput.message?.content || aiOutput.text || aiOutput.output || '';\n  const jsonMatch = text.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  parsed = { 品类: '其他', 摘要: 'AI解析失败', 是否热点: '否', 关键词: '' };\n}\nreturn {\n  json: {\n    ...item,\n    category: parsed.品类 || '其他',\n    summary: parsed.摘要 || item.description.substring(0, 100),\n    isHot: parsed.是否热点 || '否',\n    keywords: parsed.关键词 || ''\n  }\n};"
+      },
+      "id": "node-parse-ai",
+      "name": "解析AI结果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2740, 550]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO rss_items (title, link, guid, source, pub_date, category, summary, is_hot, keywords, raw_description, created_at)\nVALUES (\n  '{{ $json.title }}',\n  '{{ $json.link }}',\n  '{{ $json.guid }}',\n  '{{ $json.source }}',\n  '{{ $json.pubDate }}',\n  '{{ $json.category }}',\n  '{{ $json.summary }}',\n  '{{ $json.isHot }}',\n  '{{ $json.keywords }}',\n  '{{ $json.description }}',\n  NOW()\n)\nON CONFLICT (guid) DO NOTHING\nRETURNING id"
+      },
+      "id": "node-db-write",
+      "name": "写入数据库",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2980, 550],
+      "credentials": { "postgres": "your-postgres-credentials" },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = {\n  total: items.length,\n  new: items.filter(i => i.json.id).length,\n  skipped: items.filter(i => !i.json.id).length,\n  sources: [...new Set(items.map(i => i.json.source))].join(', ')\n};\nreturn { json: results };"
+      },
+      "id": "node-summary",
+      "name": "运行摘要",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3220, 400]
+    }
+  ],
+  "connections": {
+    "定时触发": { "main": [[{ "node": "读取RSS源配置", "type": "main", "index": 0 }]] },
+    "读取RSS源配置": { "main": [[{ "node": "遍历RSS源", "type": "main", "index": 0 }]] },
+    "遍历RSS源": {
+      "main": [[{ "node": "获取RSS原始内容", "type": "main", "index": 0 }]] ,
+      "done": [[{ "node": "运行摘要", "type": "main", "index": 0 }]]
+    },
+    "获取RSS原始内容": { "main": [[{ "node": "解析RSS(转码)", "type": "main", "index": 0 }]] },
+    "解析RSS(转码)": { "main": [[{ "node": "遍历资讯", "type": "main", "index": 0 }]] },
+    "遍历资讯": {
+      "main": [
+        [{ "node": "检查重复", "type": "main", "index": 0 }],
+        [{ "node": "标准化字段", "type": "main", "index": 0 }]
+      ]
+    },
+    "检查重复": { "main": [[{ "node": "标准化字段", "type": "main", "index": 0 }]] },
+    "标准化字段": { "main": [[{ "node": "抓取原文", "type": "main", "index": 0 }]] },
+    "抓取原文": { "main": [[{ "node": "提取正文", "type": "main", "index": 0 }]] },
+    "提取正文": { "main": [[{ "node": "预过滤", "type": "main", "index": 0 }]] },
+    "预过滤": { "main": [[{ "node": "AI分类打标", "type": "main", "index": 0 }]] },
+    "AI分类打标": { "main": [[{ "node": "解析AI结果", "type": "main", "index": 0 }]] },
+    "解析AI结果": { "main": [[{ "node": "写入数据库", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "staticData": null,
+  "tags": ["家电", "RSS", "AI分类", "v3"]
+}
