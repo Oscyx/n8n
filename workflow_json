@@ -26,7 +26,6 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [340, 400],
-      "credentials": { "postgres": "your-postgres-credentials" },
       "alwaysOutputData": true
     },
     {
@@ -87,8 +86,7 @@
       "name": "检查重复",
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
-      "position": [1540, 250],
-      "credentials": { "postgres": "your-postgres-credentials" }
+      "position": [1540, 250]
     },
     {
       "parameters": {
@@ -155,8 +153,7 @@
       "name": "AI分类打标",
       "type": "@n8n/n8n-nodes-langchain.openAi",
       "typeVersion": 1.4,
-      "position": [2500, 550],
-      "credentials": { "openAiApi": "your-openai-credentials" }
+      "position": [2500, 550]
     },
     {
       "parameters": {
@@ -178,7 +175,6 @@
       "type": "n8n-nodes-base.postgres",
       "typeVersion": 2.4,
       "position": [2980, 550],
-      "credentials": { "postgres": "your-postgres-credentials" },
       "continueOnFail": true
     },
     {
