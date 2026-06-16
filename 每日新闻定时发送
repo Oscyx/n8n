@@ -1,0 +1,1136 @@
+{
+  "name": "每日新闻定时发送",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 0 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "9ab7d251-d3d3-4867-8f98-5fcb692850eb",
+      "name": "周一发送触发",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1700,
+        640
+      ],
+      "notes": "周一凌晨0:20发送周五~周日文章"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 0 * * 3"
+            }
+          ]
+        }
+      },
+      "id": "3d853f8b-58cb-4d2f-8464-23f89cd5857d",
+      "name": "周三发送触发",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1700,
+        800
+      ],
+      "notes": "周三凌晨0:20发送周一~周二文章"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "20 0 * * 5"
+            }
+          ]
+        }
+      },
+      "id": "b3bc0e0e-780b-41f6-a318-2ff1a7d30045",
+      "name": "周五发送触发",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -1700,
+        960
+      ],
+      "notes": "周五凌晨0:20发送周三~周四文章"
+    },
+    {
+      "parameters": {
+        "mode": "append"
+      },
+      "id": "442d3816-2ace-41d1-ad87-ea6d69439318",
+      "name": "合并发送触发",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -1520,
+        800
+      ],
+      "notes": "合并三个发送触发"
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst dayOfWeek = now.getDay();\nconst dates = [];\nif (dayOfWeek === 1) {\n  for (let i = 3; i >= 1; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dates.push(d.toISOString().slice(0, 10)); }\n} else if (dayOfWeek === 3 || dayOfWeek === 5) {\n  for (let i = 2; i >= 1; i--) { const d = new Date(now); d.setDate(d.getDate() - i); dates.push(d.toISOString().slice(0, 10)); }\n} else {\n  return [];\n}\nconst newsDateStr = now.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });\nreturn [{ json: { 新闻日期: newsDateStr, dates, poolPath: 'pending-news.json' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1360,
+        800
+      ],
+      "id": "a9141e0d-e501-4f64-bf49-9596b37b2c83",
+      "name": "当日日期"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => ({\n  json: {\n    标题: item.json.title || '',\n    链接: item.json.link || '',\n    发布日期: item.json.pubDate || '',\n    摘要: item.json.summary || '',\n    正文: item.json.content || '',\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        944
+      ],
+      "id": "52a7b496-86ff-474c-b9b8-286f5f68bfd9",
+      "name": "字段名修改"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1328,
+        944
+      ],
+      "id": "9c5f2619-7090-43d8-a30b-5d82f724fe42",
+      "name": "循环摘要生成"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是一个家电行业新闻筛选专家，你的任务是判断用户传输的文章是否属于家电行业文章（包括具身智能、人形机器人），并按照要求返回结果。\n非常重要：\n必须返回合法 JSON。\n所有字符串都必须使用英文双引号 \"。\n如果标题或摘要中本身包含双引号，必须转义为 \\\"\n不要输出“其他相关链接”字段。\n不要输出 markdown、代码块、解释文字或换行说明。\n\n## 文章信息\n标题：{{ $json['标题'] }}\n正文：{{ $json['正文'] }}\n\n## 输出要求\n\n只能返回以下两个格式之一，不要任何其他文字、标点、换行：\n{\"isHomeAppliance\": true, \"标题\": \"{{ $json['标题'] }}\", \"链接\": \"{{ $json['链接'] }}\", \"发布日期\": \"{{ $json['发布日期'] }}\", \"摘要\": \"100字左右中文摘要，重点突出文章产品和技术面的内容\", \"重要性\": \"高/中/低\" }\n{\"isHomeAppliance\": false}\n\n注意：以下文章属于\"种草安利对比类\"软文，直接返回false：\n- 文章核心内容是推荐、对比、测评多款产品（如\"哪款冰箱好？\"、\"X品牌 vs Y品牌\"）\n- 文章以购买攻略、选购指南、产品推荐为主（如\"2026年最值得买的10款洗衣机\"）\n\n## 重要性分类标准\n\n高：海尔（统帅、卡萨帝）、美的（小天鹅、东芝、COLMO）、海信（容声）、小米、华为、追觅、石头、西门子、博世、三星、LG、方太、老板电器的冰箱、洗衣机、烘干机、衣物护理机产品发布或技术突破；具身智能/机器人技术与家电结合的重大进展；品牌新品发布会\n\n中：扫地机器人动向；以上品牌的洗碗机、烤箱动向；全屋智能动向\n\n低：非冰箱和洗衣机的家电类新闻，纯具身智能/机器人技术进展（不涉及家用），财报/季报，空调/电视动向\n\n### 高优先级判定（必须同时满足）\n1. 文章必须是关于全新产品的首次公开发布\n\n### 以下情况直接归类为低\n- 品鉴会、体验会、试驾会\n- 已有产品的促销/推广活动\n\n### 示例判断\n| 文章内容 | 正确分类 | 原因 |\n|----------|----------|------|\n| \"海信璀璨606U6大冻梨冰箱品鉴会在青举行\" | 中 | 品鉴会是体验活动 |\n| \"海信璀璨U系列真空冰箱在AWE2025正式发布\" | 高 | 展会首发 |\n| \"海尔发布2025FIFA世俱杯定制冰箱\" | 高 | 官方新品发布 |",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1552,
+        928
+      ],
+      "id": "fc457148-2edf-48de-ad49-f979652b5b65",
+      "name": "filter_again&summary",
+      "retryOnFail": false,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfunction normalizeBadJson(raw) {\n  if (typeof raw !== 'string') return raw;\n\n  let s = raw.trim();\n\n  // 去掉代码块包裹\n  s = s.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/, '');\n\n  // 中文引号转英文\n  s = s\n    .replace(/[\\u201C\\u201D]/g, '\"')\n    .replace(/[\\u2018\\u2019]/g, \"'\");\n\n  // 删除不该出现在这个节点里的字段：其他相关链接\n  s = s.replace(/,\\s*\"其他相关链接\"\\s*:\\s*(\\[[^\\]]*\\]|\\{[^}]*\\}|null|\"\"|\"[^\"]*\"|[^,}\\]]*)/g, '');\n\n  // 修复尾逗号\n  s = s.replace(/,\\s*}/g, '}').replace(/,\\s*]/g, ']');\n\n  return s;\n}\n\nfunction tryParse(raw) {\n  if (!raw) return null;\n  if (typeof raw === 'object') return raw;\n\n  let s = normalizeBadJson(raw);\n\n  try {\n    return JSON.parse(s);\n  } catch (e1) {\n    // 修复字符串值内部未转义的英文引号，重点处理标题/摘要\n    try {\n      s = s.replace(/\"标题\"\\s*:\\s*\"([\\s\\S]*?)\"(?=\\s*,\\s*\"链接\")/g, (_, v) => {\n        return `\"标题\":\"${v.replace(/\"/g, '\\\\\"')}\"`;\n      });\n\n      s = s.replace(/\"摘要\"\\s*:\\s*\"([\\s\\S]*?)\"(?=\\s*,\\s*\"重要性\")/g, (_, v) => {\n        return `\"摘要\":\"${v.replace(/\"/g, '\\\\\"')}\"`;\n      });\n\n      s = s.replace(/\"链接\"\\s*:\\s*\"([\\s\\S]*?)\"(?=\\s*,\\s*\"发布日期\")/g, (_, v) => {\n        return `\"链接\":\"${v.replace(/\"/g, '\\\\\"')}\"`;\n      });\n\n      s = s.replace(/\"发布日期\"\\s*:\\s*\"([\\s\\S]*?)\"(?=\\s*,\\s*\"摘要\")/g, (_, v) => {\n        return `\"发布日期\":\"${v.replace(/\"/g, '\\\\\"')}\"`;\n      });\n\n      return JSON.parse(s);\n    } catch (e2) {\n      return null;\n    }\n  }\n}\n\nfor (const item of items) {\n  const raw = item.json.output || item.json.text || '';\n  const output = tryParse(raw);\n\n  if (!output) {\n    continue;\n  }\n\n  results.push({\n    json: { output }\n  });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        992
+      ],
+      "id": "c2257d16-32ce-4845-8bdf-8c8d2457f7d6",
+      "name": "节点解析",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5f147f2e-ba2b-49dc-8f0f-054e1f53b772",
+              "leftValue": "={{ $json.output.isHomeAppliance }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1616,
+        624
+      ],
+      "id": "5b878817-c13d-43b9-86be-5677eb0f7f23",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.map(item => {\n  const output = item.json.output || {};\n  return {\n    json: {\n      ...output\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1904,
+        624
+      ],
+      "id": "09df1561-240b-470e-96db-dda2261aef8e",
+      "name": "解开"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// 排序函数：高 > 中 > 低\nconst priority = { '高': 0, '中': 1, '低': 2 };\n\nconst sorted = items.sort((a, b) => {\n  const pa = priority[a.json.重要性] ?? 99;\n  const pb = priority[b.json.重要性] ?? 99;\n  return pa - pb;\n});\n\n// 只保留需要的字段\nreturn sorted.map(item => ({\n  json: {\n    标题: item.json.标题 || '', \n    链接: item.json.链接 || '',\n    发布日期: item.json.发布日期 || '',\n    摘要: item.json.摘要 || '',\n    重要性: item.json.重要性,\n    其他相关链接: item.json.其他相关链接 || []\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2128,
+        624
+      ],
+      "id": "c81a5ddc-963f-44d0-951f-6979c6218cbd",
+      "name": "分组排序"
+    },
+    {
+      "parameters": {
+        "jsCode": "const kept = $getWorkflowStaticData('global');\nkept.titles = [];\nkept.linkMap = {};\nkept.articles = [];\nreturn $input.all();\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2352,
+        624
+      ],
+      "id": "31dc8856-3fa1-4c62-9a7d-66d8c745a46c",
+      "name": "清空上下文"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        2576,
+        624
+      ],
+      "id": "284d9ba6-a18e-44f4-8287-9d6a1e7e42a7",
+      "name": "遍历去重"
+    },
+    {
+      "parameters": {
+        "jsCode": "const kept = $getWorkflowStaticData('global');\nif (!kept.titles) kept.titles = [];\n\nconst current = $input.first().json;\n\nreturn [{\n  json: {\n    ...current,\n    已保留标题: kept.titles.join('\\n')\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        608
+      ],
+      "id": "56d1ccbd-0442-4b5c-aee3-0f1a6a9e9b4d",
+      "name": "准备去重上下文"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是一个新闻去重专家。判断当前文章是否与已保留的文章列表语义重复。\n\n## 当前文章\n标题：{{ $json['标题'] }}\n摘要：{{ $json['摘要'] }}\n\n## 已保留的文章标题\n{{ $json['已保留标题'] }}\n\n## 判断规则\n以下情况视为重复：\n- 两篇文章报道的是同一件事（同一产品发布、同一事件）\n- 标题不同但核心内容一致\n- 一篇是另一篇的转载或改写\n\n以下情况不视为重复：\n- 不同品牌但同品类新闻\n\n直接输出JSON，不要任何其他文字。\n如果是重复：{\"duplicate\": true, \"标题\": \"当前文章标题\", \"匹配\": \"与之重复的已有文章标题\"}\n如果不是重复：{\"duplicate\": false, \"标题\": \"当前文章标题\", \"匹配\": \"\"}\n标题和匹配字段必须原样输出，不能省略。\n",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3024,
+        608
+      ],
+      "id": "fad95908-df7b-4a48-9f94-6942f5067234",
+      "name": "AI Agent",
+      "retryOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "MiniMax-M3",
+          "mode": "list",
+          "cachedResultName": "MiniMax-M3"
+        },
+        "responsesApiEnabled": false,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        3104,
+        832
+      ],
+      "id": "8621062c-3675-47f6-a90a-06e0637133ab",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "1cnSMl5rqR63JUyC",
+          "name": "Minimax"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output || $input.first().json.text || JSON.stringify($input.first().json);\nconst jsonMatch = raw.match(/\\{[\\s\\S]*\\}/);\nif (!jsonMatch) {\n  return [{ json: { duplicate: false, 标题: '', 匹配: '' } }];\n}\ntry {\n  // 先清理可能导致解析失败的字符\n  let jsonStr = jsonMatch[0];\n  const parsed = JSON.parse(jsonStr);\n  return [{ json: { \n    duplicate: parsed.duplicate === true, \n    标题: parsed.标题 || '', \n    匹配: parsed.匹配 || '' \n  } }];\n} catch (e) {\n  // JSON解析失败时，用正则提取关键字段\n  const dupMatch = raw.match(/\"duplicate\"\\s*:\\s*(true|false)/);\n  const titleMatch = raw.match(/\"标题\"\\s*:\\s*\"([^\"]*)\"/);\n  const matchMatch = raw.match(/\"匹配\"\\s*:\\s*\"([^\"]*)\"/);\n  return [{ json: { \n    duplicate: dupMatch ? dupMatch[1] === 'true' : false,\n    标题: titleMatch ? titleMatch[1] : '',\n    匹配: matchMatch ? matchMatch[1] : ''\n  } }];\n}\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3376,
+        608
+      ],
+      "id": "5c26f16b-e544-4759-af96-a5c9e3d973bf",
+      "name": "解析结果"
+    },
+    {
+      "parameters": {
+        "jsCode": "const kept = $getWorkflowStaticData('global');\nif (!kept.titles) kept.titles = [];\nif (!kept.linkMap) kept.linkMap = {};\nif (!kept.articles) kept.articles = [];\n\nconst isDuplicate = $input.first().json.duplicate === true;\nconst title = $input.first().json.标题 || '';\nconst matchTitle = $input.first().json.匹配 || '';\nconst currentArticle = $('准备去重上下文').first().json;\nconst link = currentArticle.链接 || '';\n\nif (isDuplicate && matchTitle && link) {\n  if (!kept.linkMap[matchTitle]) {\n    kept.linkMap[matchTitle] = [];\n  }\n  kept.linkMap[matchTitle].push(link);\n} else if (!isDuplicate && title) {\n  kept.titles.push(title);\n  kept.linkMap[title] = kept.linkMap[title] || [];\n  kept.articles.push(currentArticle);\n}\n\nreturn [{ json: { duplicate: isDuplicate } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        608
+      ],
+      "id": "a633a95c-270e-4d92-b5eb-b2602775bf99",
+      "name": "更新已保留列表"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a053be37-ab86-4d8e-ac56-746cdc654d62",
+              "leftValue": "={{ $json.duplicate }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {
+          "ignoreCase": false
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        3824,
+        720
+      ],
+      "id": "a9ea90cf-95f2-4cb5-a7ef-4601c2a8ba99",
+      "name": "是否重复",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        4048,
+        720
+      ],
+      "id": "f36ae71e-5515-4333-8443-cc8d481e2d5d",
+      "name": "继续循环"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4272,
+        784
+      ],
+      "id": "fa7fbf91-050c-4d45-ab8a-892253a112f4",
+      "name": "转化空值",
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const kept = $getWorkflowStaticData('global');\nconst articles = kept.articles || [];\n\nconst result = articles.map(article => {\n  const relatedLinks = kept.linkMap[article.标题] || [];\n  return {\n    json: {\n      ...article,\n      其他相关链接: [\n        ...(article.其他相关链接 || []),\n        ...relatedLinks\n      ]\n    }\n  };\n});\n\nkept.articles = [];\nkept.titles = [];\nkept.linkMap = {};\n\nreturn result;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        352
+      ],
+      "id": "2f2513a3-6738-4bf3-b0cd-4a9c81dce55c",
+      "name": "贴上其他相关链接"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3088,
+        256
+      ],
+      "id": "93792611-82af-4837-b158-c8add878a0ba",
+      "name": "奥维合并"
+    },
+    {
+      "parameters": {
+        "jsCode": "const priorityOrder = {\n  '高': 0,\n  '中': 1,\n  '低': 2,\n};\n\nconst items = $input\n  .all()\n  .filter(item => {\n    const j = item.json || {};\n    return j.标题 && j.链接;\n  })\n  .map(item => {\n    const j = { ...item.json };\n\n    if (Array.isArray(j.其他相关链接) && j.其他相关链接.length === 0) {\n      delete j.其他相关链接;\n    }\n\n    return { json: j };\n  })\n  .sort((a, b) => {\n    const pa = priorityOrder[a.json.重要性] ?? 99;\n    const pb = priorityOrder[b.json.重要性] ?? 99;\n\n    if (pa !== pb) return pa - pb;\n\n    const da = a.json.发布日期 || '';\n    const db = b.json.发布日期 || '';\n    return db.localeCompare(da);\n  });\n\nreturn items;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3376,
+        256
+      ],
+      "id": "be400d02-280f-41c7-b4ad-df5d5d3fc19f",
+      "name": "重排序"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().filter(item => item.json.duplicate !== true);\n\nconst priority = { '高': 0, '中': 1, '低': 2 };\nconst sorted = items.sort((a, b) => (priority[a.json.重要性] ?? 99) - (priority[b.json.重要性] ?? 99));\n\nconst groupByPriority = (items, level) => items.filter(i => i.json.重要性 === level);\n\nconst renderArticles = (list, level) => {\n  if (list.length === 0) return '';\n  const articlesHtml = list.map(item => {\n    const relatedLinks = (item.json.其他相关链接 || []);\n    const relatedHtml = relatedLinks.length > 0\n      ? `<div style=\"margin-top:8px;\">` + relatedLinks.map((link, i) =>\n          `<a href=\"${link}\" style=\"font-size:11px;color:#888;text-decoration:none;margin-right:8px;\">相关链接${i + 1} →</a>`\n        ).join('') + `</div>`\n      : '';\n    return `\n      <div style=\"padding:18px 0;border-bottom:1px dashed #e8e8e6;\">\n        <h3 style=\"font-family:'Noto Serif SC',Georgia,serif;font-size:15px;font-weight:600;color:#1a1a1a;line-height:1.5;margin:0 0 6px;\">${item.json.标题}</h3>\n        <div style=\"font-size:11px;color:#999;margin-bottom:10px;\">${item.json.发布日期}</div>\n        <p style=\"font-size:13px;color:#666;line-height:1.75;margin:0 0 10px;font-weight:300;\">${item.json.摘要}</p>\n        <a href=\"${item.json.链接}\" style=\"font-size:12px;color:#2563eb;text-decoration:none;font-weight:400;\">查看原文 →</a>\n        ${relatedHtml}\n      </div>\n    `;\n  }).join('');\n  return `\n    <div style=\"padding:28px 48px;border-bottom:1px solid #e8e8e6;\">\n      <div style=\"display:flex;align-items:center;gap:10px;margin-bottom:20px;\">\n        <span style=\"font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;padding:5px 10px;border-radius:3px;${level === '高' ? 'background:#fef2f2;color:#c41e3a;' : level === '中' ? 'background:#fffbeb;color:#d97706;' : 'background:#f3f4f6;color:#6b7280;'}\">${level}优先级</span>\n        <span style=\"font-size:12px;color:#999;\">${list.length}篇</span>\n      </div>\n      ${articlesHtml}\n    </div>\n  `;\n};\n\nconst html = \n  renderArticles(groupByPriority(sorted, '高'), '高') +\n  renderArticles(groupByPriority(sorted, '中'), '中') +\n  renderArticles(groupByPriority(sorted, '低'), '低');\n\nreturn {\n  json: {\n    body: `\n      <div style=\"font-family:'Noto Sans SC',-apple-system,sans-serif;background:#f5f5f3;padding:40px 20px;-webkit-font-smoothing:antialiased;\">\n        <div style=\"max-width:640px;margin:0 auto;\">\n          <div style=\"background:#fff;border-radius:4px 4px 0 0;padding:40px 48px 32px;text-align:center;border-bottom:1px solid #e8e8e6;position:relative;overflow:hidden;\">\n            <div style=\"position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#c41e3a,#d97706);\"></div>\n            <div style=\"font-size:11px;font-weight:500;letter-spacing:2px;text-transform:uppercase;color:#999;margin-bottom:12px;\">${$('当日日期').first().json.新闻日期}</div>\n            <h1 style=\"font-family:'Noto Serif SC',Georgia,serif;font-size:28px;font-weight:700;color:#1a1a1a;letter-spacing:0.5px;line-height:1.3;margin:0;\">家电行业新闻简报</h1>\n            <p style=\"font-size:13px;color:#666;margin-top:8px;font-weight:300;\">每日行业资讯精选</p>\n          </div>\n          <div style=\"padding:20px 24px;margin:0;background:linear-gradient(135deg,#fafaf8 0%,#f5f4f0 100%);border-bottom:1px solid #e8e8e6;\">\n            <table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\">\n              <tr>\n                <td style=\"width:3px;background:#c8b89a;border-radius:2px;\" valign=\"top\"></td>\n                <td style=\"padding-left:16px;\">\n                  <p style=\"font-size:12px;color:#666;line-height:1.9;margin:0;font-family:'Noto Serif SC',Georgia,serif;\">该内容由来自LGENH China HS Product Planning Team的<strong style=\"color:#3a3a3a;\">林宇翔</strong>制作；如果你有任何好的建议，请联系我的Teams(<strong style=\"color:#3a3a3a;\">YUXIANG LIN</strong>)或者邮箱(<a href=\"mailto:yuxiang.lin@lge.com\" style=\"color:#2563eb;text-decoration:none;border-bottom:1px solid rgba(37,99,235,0.3);\">yuxiang.lin@lge.com</a>)。</p>\n                  <p style=\"font-size:11px;color:#999;line-height:1.9;margin:10px 0 0;font-family:'Noto Serif SC',Georgia,serif;\">This content is made by Yuxiang Lin from the LGENH China HS Product Planning Team.<br/>의견이나 제안이 있으신 경우, 제 Teams(<strong style=\"color:#777;\">YUXIANG LIN</strong>) 또는 이메일(<a href=\"mailto:yuxiang.lin@lge.com\" style=\"color:#2563eb;text-decoration:none;border-bottom:1px solid rgba(37,99,235,0.3);\">yuxiang.lin@lge.com</a>)로 연락주시면 감사하겠습니다.</p>\n                </td>\n              </tr>\n            </table>\n          </div>\n          <div style=\"background:#fff;border-radius:0 0 4px 4px;box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 12px rgba(0,0,0,0.03);\">\n            ${html || '<div style=\"padding:48px;text-align:center;color:#999;\">今日无新增新闻</div>'}\n          </div>\n        </div>\n      </div>\n    `\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3600,
+        256
+      ],
+      "id": "9441591a-1bd3-4b70-b9e6-4044a20d270b",
+      "name": "页面制作"
+    },
+    {
+      "parameters": {
+        "fromEmail": "17326513531@163.com",
+        "toEmail": "tianjian.xu@lge.com,hai.yuan@lge.com,dongjun.shen@lge.com,chunfang.tong@lge.com,caizhi.li@lge.com,paladin.zhao@lge.com,haijun1.song@lge.com,weiji.ji@lge.com,zhenhua.jiang@lge.com,shili.huang@lge.com,seungjin.choi@lge.com,yongzhe82.kim@lge.com,insup.park@lge.com,sangho.jung@lge.com",
+        "subject": "=가전업계 뉴스 브리핑 - {{ $('当日日期').first().json.新闻日期 }}",
+        "html": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3824,
+        352
+      ],
+      "id": "9839cc7b-2f62-4f39-accd-9f6d96e192a6",
+      "name": "韩国",
+      "webhookId": "542367b4-7152-4fda-83bd-d747ff2cf3f5",
+      "credentials": {
+        "smtp": {
+          "id": "PXQTrOH3QrPsNrXH",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "17326513531@163.com",
+        "toEmail": "youngsooo.kim@lge.com,dooho.bae@lge.com,bohyun.nam@lge.com,iggeun.kwon@lge.com,sangwoo.jo@lge.com,david.heo@lge.com,oneshot.kim@lge.com,soonan.park@lge.com,julie.ku@lge.com,hyangeun.lee@lge.com,simon.youn@lge.com,taehwan.byun@lge.com,jaegeon.choi@lge.com,jae0.lee@lge.com,sangjisj.lee@lge.com,haeun.lee@lge.com,jihye0525.kim@lge.com,youngcheol.yoo@lge.com,soryoung.kim@lge.com,jaeseung.kim@lge.com,hokyoung.lee@lge.com,sangbong77.lee@lge.com,kyle.kim@lge.com,sehyun.yang@lge.com,seongyong.son@lge.com,minchang.song@lge.com,paul.moon@lge.com,yuxiang.lin@lge.com,wenhui.ye@lge.com,pnmeng.wang@lge.com,xiya.shang@lge.com,di.zhao@lge.com,sijia.chen@lge.com,xiuyan.jin@lge.com,tao.mu@lge.com,june.zhu@lge.com,pnyong.cui@lge.com,biao.xing@lge.com,meizhen.cheng@lge.com,bei.xu@lge.com,shibao.xu@lge.com,jianqiu.shao@lge.com,pnjie.li@lge.com,zhenzhen.zhang@lge.com,shengmao.jia@lge.com,yq.chen@lge.com,fenfang.tong@lge.com",
+        "subject": "=가전업계 뉴스 브리핑 -  {{ $('当日日期').first().json.新闻日期 }}",
+        "html": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3824,
+        160
+      ],
+      "id": "e6037a39-aa8d-4558-9848-605c46eb957c",
+      "name": "韩文",
+      "webhookId": "0cc93cd9-2ec0-4c34-b1e1-da654d3be7cf",
+      "credentials": {
+        "smtp": {
+          "id": "PXQTrOH3QrPsNrXH",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "MiniMax-M3",
+          "mode": "list",
+          "cachedResultName": "MiniMax-M3"
+        },
+        "responsesApiEnabled": false,
+        "options": {
+          "responseFormat": "json_object",
+          "temperature": 0.1,
+          "topP": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1552,
+        1104
+      ],
+      "id": "51eaf172-b756-4bb4-a0e8-1b2585173f23",
+      "name": "模型",
+      "credentials": {
+        "openAiApi": {
+          "id": "1cnSMl5rqR63JUyC",
+          "name": "Minimax"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "17326513531@163.com",
+        "toEmail": "yuxiang.lin@lge.com",
+        "subject": "=가전업계 뉴스 브리핑 -  {{ $('当日日期').first().json.新闻日期 }}",
+        "html": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        3824,
+        -16
+      ],
+      "id": "84d8509d-67b3-4ecf-b507-3a70eddc6e3c",
+      "name": "测试专用",
+      "webhookId": "5f677bb7-d804-42f7-adab-b0f671e1c38d",
+      "credentials": {
+        "smtp": {
+          "id": "PXQTrOH3QrPsNrXH",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nreturn items.filter(item => item.json.link && item.json.link.trim() !== '');"
+      },
+      "id": "354a8651-7a3d-4992-9a15-c258868c44f9",
+      "name": "去除空数组",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        1216
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "11c4b969-b995-43ea-825a-f5cca889a219",
+      "name": "遍历抓取文章",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -16,
+        1216
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.link }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "efe4b8d4-49ba-4b88-b68f-514dca0e62f8",
+      "name": "抓取详情",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        208,
+        1168
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const httpData = $input.first().json;\nconst item = $('遍历抓取文章').first().json;\n\nconst html = httpData.data || '';\n\nlet text = '';\n\n// ========== abi.com.cn 艾肯家电网 ==========\nif (html.includes('abi.com.cn') || html.includes('cr_h1title')) {\n  const titleM = html.match(/<h1 class=\"cr_h1title\">([^<]+)<\\/h1>/);\n  const timeMatch = html.match(/<div class=\"am-cf author-panel\"[\\s\\S]*?<abbr class=\"time\">(\\d{4}-\\d{1,2}-\\d{1,2})/);\n  const authorMatch = html.match(/<div class=\"am-cf author-panel\"[\\s\\S]*?<abbr class=\"time\">\\d{4}-\\d{1,2}-\\d{1,2}<\\/abbr>[\\s\\S]*?<abbr class=\"time\">([^<]+)<\\/abbr>/);\n  \n  const contentMatch = html.match(/<section class=\"textblock\">([\\s\\S]*?)<\\/section>/);\n  if (contentMatch) {\n    const ps = contentMatch[1].match(/<p[^>]*>([\\s\\S]*?)<\\/p>/gi);\n    if (ps) {\n      text = ps.map(p => p.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()).filter(t => t).join('\\n');\n    } else {\n      text = contentMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();\n    }\n  }\n  \n  return {\n    json: {\n      title: item.title || (titleM ? titleM[1].trim() : ''),\n      link: item.link || '',\n      pubDate: item.pubDate || (timeMatch ? timeMatch[1] : ''),\n      author: authorMatch ? authorMatch[1].trim() : '艾肯家电网',\n      content: text || item.摘要 || ''\n    }\n  };\n}\n\n// ========== zdwang.com 智电网 ==========\nif (html.includes('zdwang.com') || html.includes('class=\"biaoti\"')) {\n  const titleM = html.match(/<h1>([^<]+)<\\/h1>/);\n  const timeMatch = html.match(/发布时间：(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})/);\n  \n  const contentMatch = html.match(/<div class=\"content\">([\\s\\S]*?)<\\/div>\\s*<div class=\"ep-source\">/);\n  text = '';\n  if (contentMatch) {\n    const ps = contentMatch[1].match(/<p[^>]*>([\\s\\S]*?)<\\/p>/gi);\n    if (ps) {\n      text = ps.map(p => p.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()).filter(t => t).join('\\n');\n    }\n  }\n  \n  let dateStr = '';\n  if (timeMatch) {\n    const dt = new Date(timeMatch[1]);\n    dateStr = dt.toISOString().substring(0, 10);\n  }\n  \n  return {\n    json: {\n      title: item.title || (titleM ? titleM[1].trim() : ''),\n      link: item.link || '',\n      pubDate: item.pubDate || dateStr,\n      content: text || item.摘要 || ''\n    }\n  };\n}\n// ---- ichaoqi.com / 潮起网 - 文章详情页 ----\nif (html.includes('ichaoqi.com') || html.includes('entry-title')) {\n  const titleM = html.match(/<h1 class=\"entry-title[^\"]*\"[^>]*>([^<]+)<\\/h1>/);\n  const canonicalM = html.match(/<link rel=\"canonical\" href=\"([^\"]+)\"/);\n  const dateM = html.match(/<meta property=\"article:published_time\" content=\"([^\"]+)\"/);\n  \n  const contentMatch = html.match(/<div class=\"entry-content[^\"]*\"[^>]*>([\\s\\S]*?)<\\/div>\\s*<footer/);\n  text = '';\n  if (contentMatch) {\n    const ps = contentMatch[1].match(/<p[^>]*>([\\s\\S]*?)<\\/p>/gi);\n    if (ps) {\n      text = ps.map(p => p.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim()).filter(t => t).join('\\n');\n    } else {\n      text = contentMatch[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();\n    }\n  }\n  \n  return {\n    json: {\n      title: item.title || (titleM ? titleM[1].trim() : ''),\n      link: item.link || (canonicalM ? canonicalM[1] : ''),\n      pubDate: item.pubDate || (dateM ? dateM[1].substring(0, 10) : ''),\n      content: text || item.摘要 || ''\n    }\n  };\n}\n// ========== 环球网 ==========\nconst hqContent = html.match(/<textarea class=\"article-content\"[^>]*>([\\s\\S]*?)<\\/textarea>/i);\nif (hqContent) {\n  text = hqContent[1];\n  text = text.replace(/<\\/?article[^>]*>/gi, '');\n  text = text.replace(/<section[^>]*>/gi, '');\n  text = text.replace(/<\\/section>/gi, '');\n  text = text.replace(/<p[^>]*>/gi, '\\n');\n  text = text.replace(/<br\\s*\\/?>/gi, '\\n');\n  text = text.replace(/<i class=\"pic-con\"[^>]*>[\\s\\S]*?<\\/i>/gi, '');\n  text = text.replace(/<adv-loader[^>]*>[\\s\\S]*?<\\/adv-loader>/gi, '');\n} else {\n  // donews 格式\n  const ctrlStart = html.indexOf('id=\"ctrlfscont\"');\n  const shareStart = html.indexOf('id=\"share-2\"');\n  if (ctrlStart > 0 && shareStart > 0) {\n    text = html.substring(ctrlStart, shareStart);\n  } else {\n    // jdqs 家电圈格式\n    const newscontStart = html.indexOf('id=\"newscont\"');\n    if (newscontStart > 0) {\n      const newscontEnd = html.indexOf('</div>', newscontStart);\n      if (newscontEnd > 0) {\n        text = html.substring(newscontStart, newscontEnd);\n      }\n    }\n  }\n  text = text.replace(/<[^>]+>/g, '');\n  text = text.replace(/id=\"[^\"]*\"/g, '');\n  text = text.replace(/class=\"[^\"]*\"/g, '');\n}\n\n// HTML 实体清理\ntext = text.replace(/&nbsp;/g, ' ');\ntext = text.replace(/&ldquo;/g, '\"').replace(/&rdquo;/g, '\"');\ntext = text.replace(/&amp;/g, '&');\ntext = text.replace(/&lsquo;/g, \"'\").replace(/&rsquo;/g, \"'\");\n\n// 去除 HTML 残留\ntext = text.replace(/<div[\"\\s\\S]*$/, '');\n\n// 去除全角空格和多余空白\ntext = text.replace(/　+/g, ' ');\ntext = text.replace(/\\s+/g, ' ');\n\n// 智能分段：句号换行\ntext = text.replace(/。/g, '。\\n');\ntext = text.replace(/\\n\\s*/g, '\\n');\ntext = text.trim();\n\n// 截取前20000字符\ntext = text.substring(0, 20000);\n\nreturn {\n  json: {\n    title: item.title || '',\n    link: item.link || '',\n    pubDate: item.pubDate || '',\n    content: text || item.摘要 || ''\n  }\n};\n"
+      },
+      "id": "892d2533-58f5-4a7b-bdd4-084050f54c91",
+      "name": "解析正文",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        1280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const dates = $input.first().json.dates || [];\nreturn dates.map(date => ({ json: { date, dates, poolPath: 'pending-news.json' } }));"
+      },
+      "id": "0c7fc22c-7c11-4edc-862a-82d6c50f942a",
+      "name": "读取待发送文章池",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1120,
+        800
+      ],
+      "notes": "导入后请改为真实文件读取节点：按 dates 从 pending-news.json 取出文章"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.skipFullText }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7d7d3fcc-06dc-4dab-976f-0a4e10a6d2e2",
+      "name": "是否跳过正文",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -900,
+        800
+      ],
+      "notes": "奥维轻量文章走轻量分支，其他文章进入主链"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: { title: item.json.标题 || item.json.title || '', link: item.json.链接 || item.json.link || '', pubDate: item.json.发布日期 || item.json.pubDate || '', summary: item.json.摘要 || item.json.summary || '', content: item.json.正文 || item.json.content || '', sourceType: item.json.sourceType || '' } }));"
+      },
+      "id": "1ee10104-04e6-4955-872d-716dbc096cbe",
+      "name": "待抓正文文章转主链字段",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        720
+      ],
+      "notes": "把文章池中的待抓正文文章转换为原主链抓正文前字段"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({ json: { 标题: item.json.标题, 链接: item.json.链接, 发布日期: item.json.发布日期, 摘要: item.json.摘要 || '', 重要性: item.json.重要性 || '低', 其他相关链接: item.json.其他相关链接 || [] } }));"
+      },
+      "id": "cf9cc974-a7b1-4103-bf5a-a12f1ac03ab3",
+      "name": "轻量文章标准化",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        1040
+      ],
+      "notes": "奥维轻量文章标准化后并入最终结果"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { note: '邮件发送成功后，请按 dates 从 pending-news.json 删除对应日期数据' } }];"
+      },
+      "id": "6572ff15-9916-4ac8-b361-7b9805a17641",
+      "name": "删除已发送日期",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        800
+      ],
+      "notes": "导入后请改为真实删除逻辑，只删除本次发送日期"
+    }
+  ],
+  "connections": {
+    "去除空数组": {
+      "main": [
+        [
+          {
+            "node": "遍历抓取文章",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "遍历抓取文章": {
+      "main": [
+        [
+          {
+            "node": "字段名修改",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "抓取详情",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "抓取详情": {
+      "main": [
+        [
+          {
+            "node": "解析正文",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析正文": {
+      "main": [
+        [
+          {
+            "node": "遍历抓取文章",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "循环摘要生成": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "filter_again&summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "字段名修改": {
+      "main": [
+        [
+          {
+            "node": "循环摘要生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "解开",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解开": {
+      "main": [
+        [
+          {
+            "node": "分组排序",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "分组排序": {
+      "main": [
+        [
+          {
+            "node": "清空上下文",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "准备去重上下文": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "遍历去重": {
+      "main": [
+        [
+          {
+            "node": "贴上其他相关链接",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "准备去重上下文",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "解析结果",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "更新已保留列表": {
+      "main": [
+        [
+          {
+            "node": "是否重复",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "是否重复": {
+      "main": [
+        [
+          {
+            "node": "继续循环",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "遍历去重",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析结果": {
+      "main": [
+        [
+          {
+            "node": "更新已保留列表",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "继续循环": {
+      "main": [
+        [
+          {
+            "node": "转化空值",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "清空上下文": {
+      "main": [
+        [
+          {
+            "node": "遍历去重",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "转化空值": {
+      "main": [
+        [
+          {
+            "node": "遍历去重",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "模型": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "filter_again&summary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "节点解析": {
+      "main": [
+        [
+          {
+            "node": "循环摘要生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "filter_again&summary": {
+      "main": [
+        [
+          {
+            "node": "节点解析",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "贴上其他相关链接": {
+      "main": [
+        [
+          {
+            "node": "奥维合并",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "奥维合并": {
+      "main": [
+        [
+          {
+            "node": "重排序",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "页面制作": {
+      "main": [
+        [
+          {
+            "node": "韩文",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "韩国",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "测试专用",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "删除已发送日期",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "重排序": {
+      "main": [
+        [
+          {
+            "node": "页面制作",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "周一发送触发": {
+      "main": [
+        [
+          {
+            "node": "合并发送触发",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "周三发送触发": {
+      "main": [
+        [
+          {
+            "node": "合并发送触发",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "周五发送触发": {
+      "main": [
+        [
+          {
+            "node": "合并发送触发",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "合并发送触发": {
+      "main": [
+        [
+          {
+            "node": "当日日期",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "当日日期": {
+      "main": [
+        [
+          {
+            "node": "读取待发送文章池",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "读取待发送文章池": {
+      "main": [
+        [
+          {
+            "node": "是否跳过正文",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "是否跳过正文": {
+      "main": [
+        [
+          {
+            "node": "轻量文章标准化",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "待抓正文文章转主链字段",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "待抓正文文章转主链字段": {
+      "main": [
+        [
+          {
+            "node": "去除空数组",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "轻量文章标准化": {
+      "main": [
+        [
+          {
+            "node": "奥维合并",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Asia/Singapore"
+  },
+  "staticData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "278789865bbf9a5aeebf65dfc23a110e5843a42b67dd141c6f587983069dbf6a"
+  },
+  "pinData": {},
+  "active": false,
+  "tags": [],
+  "versionId": "fc86963f-b29c-42f0-89e9-188338d1c139"
+}
